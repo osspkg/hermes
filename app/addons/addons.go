@@ -8,6 +8,7 @@ import (
 	"github.com/osspkg/go-sdk/iofile"
 	"github.com/osspkg/go-sdk/log"
 	"github.com/osspkg/hermes/app/pkg/util"
+	"github.com/osspkg/hermes/app/resolver"
 	"plugin"
 	"sync"
 
@@ -21,18 +22,18 @@ const (
 
 type Addons struct {
 	addons       map[string]api1.Api
-	system       map[string]interface{}
 	dependencies []string
 
-	conf *Config
-	mux  sync.RWMutex
+	resolver *resolver.Resolver
+	conf     *Config
+	mux      sync.RWMutex
 }
 
-func New(c *Config) *Addons {
+func New(c *Config, r *resolver.Resolver) *Addons {
 	return &Addons{
 		addons:       make(map[string]api1.Api, 100),
-		system:       make(map[string]interface{}, 100),
 		dependencies: make([]string, 0, 100),
+		resolver:     r,
 		conf:         c,
 	}
 }
@@ -42,9 +43,13 @@ func (v *Addons) Down() error {
 	defer v.mux.Unlock()
 
 	var errs error
-	for name, api := range v.addons {
+	for _, dep := range v.dependencies {
+		api, ok := v.addons[dep]
+		if !ok {
+			continue
+		}
 		if err := api.Down(); err != nil {
-			errs = errors.Wrapf(errs, "%s: %w", name, err)
+			errs = errors.Wrapf(errs, "addon stop `%s`: %w", dep, err)
 		}
 	}
 	return errs
@@ -61,7 +66,7 @@ func (v *Addons) Up(ctx app.Context) error {
 		}
 	}
 
-	if err = v.resolve(); err != nil {
+	if err = v.resolve(ctx); err != nil {
 		return err
 	}
 
@@ -73,6 +78,7 @@ func (v *Addons) load(filename string) error {
 	if err != nil {
 		return err
 	}
+
 	symApi, err := mod.Lookup(Symbol)
 	if err != nil {
 		return err
@@ -95,17 +101,13 @@ func (v *Addons) load(filename string) error {
 	return nil
 }
 
-func (v *Addons) resolve() error {
+func (v *Addons) resolve(ctx app.Context) error {
 	graph := kahn.New()
 
 	v.mux.Lock()
 	defer v.mux.Unlock()
 
 	for cur, api := range v.addons {
-		if err := v.initSystemDependency(api, api.Dependency()); err != nil {
-			return fmt.Errorf("init addon system dependency for `%s`: %w", cur, err)
-		}
-
 		for _, dep := range api.Dependency() {
 			if err := graph.Add(cur, dep); err != nil {
 				return fmt.Errorf("add addon dependency to graph `%s=>%s`: %w", cur, dep, err)
@@ -117,26 +119,29 @@ func (v *Addons) resolve() error {
 		return fmt.Errorf("build addon dependency graph: %w", err)
 	}
 
-	v.dependencies = graph.Result()
+	deps := graph.Result()
 
-	for _, dep := range v.dependencies {
-		if _, ok := v.addons[dep]; !ok {
-			return fmt.Errorf("addon dependency not found: %s", dep)
+	for _, dep := range deps {
+		if v.resolver.Has(dep) {
+			continue
 		}
+		if api, ok := v.addons[dep]; ok {
+			if err := api.Inject(v.resolver); err != nil {
+				return fmt.Errorf("addon init `%s`: %w", dep, err)
+			}
+			if err := v.resolver.Set(dep, api); err != nil {
+				return fmt.Errorf("addon save to resolver `%s`: %w", dep, err)
+			}
+			v.dependencies = append(v.dependencies, dep)
+			if err := api.Up(ctx.Context()); err != nil {
+				return fmt.Errorf("addon start `%s`: %w", dep, err)
+			}
+			continue
+		}
+		return fmt.Errorf("addon dependency not found: %s", dep)
 	}
 
 	util.FlipStringSlice(v.dependencies)
 
-	return nil
-}
-
-func (v *Addons) initSystemDependency(api api1.Api, deps []string) error {
-	for _, dep := range deps {
-		switch dep {
-
-		default:
-			fmt.Println("->", dep)
-		}
-	}
 	return nil
 }
