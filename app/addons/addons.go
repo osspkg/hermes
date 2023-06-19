@@ -15,7 +15,7 @@ import (
 	"github.com/osspkg/go-sdk/errors"
 	"github.com/osspkg/go-sdk/iofile"
 	"github.com/osspkg/go-sdk/log"
-	"github.com/osspkg/hermes-addons/api1"
+	hermesaddons "github.com/osspkg/hermes-addons"
 	"github.com/osspkg/hermes/app/pkg/util"
 	"github.com/osspkg/hermes/app/resolver"
 )
@@ -26,7 +26,7 @@ const (
 )
 
 type Addons struct {
-	addons       map[string]api1.Api
+	addons       map[string]hermesaddons.Api
 	dependencies []string
 
 	resolver *resolver.Resolver
@@ -36,7 +36,7 @@ type Addons struct {
 
 func New(c *Config, r *resolver.Resolver) *Addons {
 	return &Addons{
-		addons:       make(map[string]api1.Api, 100),
+		addons:       make(map[string]hermesaddons.Api, 100),
 		dependencies: make([]string, 0, 100),
 		resolver:     r,
 		conf:         c,
@@ -89,7 +89,7 @@ func (v *Addons) load(filename string) error {
 		return err
 	}
 
-	apiInit, ok := symApi.(func() api1.Api)
+	apiInit, ok := symApi.(func() hermesaddons.Api)
 	if !ok {
 		return fmt.Errorf("invalid api v1 for `%s`", filename)
 	}

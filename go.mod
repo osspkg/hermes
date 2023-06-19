@@ -6,7 +6,7 @@ require (
 	github.com/osspkg/go-algorithms v1.2.3
 	github.com/osspkg/go-sdk v1.2.7
 	github.com/osspkg/goppy v0.12.7
-	github.com/osspkg/hermes-addons v0.0.0-20230619032959-bcfcaa81ff00
+	github.com/osspkg/hermes-addons v0.0.0-20230619033812-a6b5ebc60ba5
 	github.com/stretchr/testify v1.8.4
 )
 
