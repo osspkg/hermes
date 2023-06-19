@@ -1,18 +1,23 @@
+/*
+ *  Copyright (c) 2023 Mikhail Knyazhev <markus621@yandex.ru>. All rights reserved.
+ *  Use of this source code is governed by a LGPL-3.0 license that can be found in the LICENSE file.
+ */
+
 package addons
 
 import (
 	"fmt"
+	"plugin"
+	"sync"
+
 	"github.com/osspkg/go-algorithms/graph/kahn"
 	"github.com/osspkg/go-sdk/app"
 	"github.com/osspkg/go-sdk/errors"
 	"github.com/osspkg/go-sdk/iofile"
 	"github.com/osspkg/go-sdk/log"
+	"github.com/osspkg/hermes-addons/api1"
 	"github.com/osspkg/hermes/app/pkg/util"
 	"github.com/osspkg/hermes/app/resolver"
-	"plugin"
-	"sync"
-
-	"github.com/osspkg/hermes-addons/api1"
 )
 
 const (
