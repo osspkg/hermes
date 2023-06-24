@@ -11,44 +11,26 @@ import (
 
 	"github.com/osspkg/goppy/plugins/database"
 	"github.com/osspkg/hermes-addons/dependency"
+	db2 "github.com/osspkg/hermes/app/resolver/db"
 )
 
 type Resolver struct {
-	system map[string]interface{}
-	addons map[string]interface{}
-	mux    sync.RWMutex
+	data map[string]interface{}
+	mux  sync.RWMutex
 }
 
-func New(
-	db database.MySQL,
-) *Resolver {
+func New(db database.MySQL) *Resolver {
 	obj := &Resolver{
-		system: make(map[string]interface{}, 100),
-		addons: make(map[string]interface{}, 100),
+		data: make(map[string]interface{}, 100),
 	}
-	obj.system[dependency.Database] = db.Pool("main")
+	obj.data[dependency.Database] = db2.New(db.Pool("main"))
 	return obj
-}
-
-func (v *Resolver) Has(dep string) bool {
-	v.mux.RLock()
-	defer v.mux.RUnlock()
-	if _, ok := v.system[dep]; ok {
-		return true
-	}
-	if _, ok := v.addons[dep]; ok {
-		return true
-	}
-	return false
 }
 
 func (v *Resolver) Get(dep string) (interface{}, error) {
 	v.mux.RLock()
 	defer v.mux.RUnlock()
-	if obj, ok := v.system[dep]; !ok {
-		return obj, nil
-	}
-	if obj, ok := v.addons[dep]; !ok {
+	if obj, ok := v.data[dep]; ok {
 		return obj, nil
 	}
 	return nil, fmt.Errorf("dependency not found: %s", dep)
@@ -57,12 +39,8 @@ func (v *Resolver) Get(dep string) (interface{}, error) {
 func (v *Resolver) Set(dep string, obj interface{}) error {
 	v.mux.Lock()
 	defer v.mux.Unlock()
-	if _, ok := v.system[dep]; ok {
+	if _, ok := v.data[dep]; ok {
 		return fmt.Errorf("dependency already exist: %s", dep)
 	}
-	if _, ok := v.addons[dep]; ok {
-		return fmt.Errorf("dependency already exist: %s", dep)
-	}
-	v.addons[dep] = obj
 	return nil
 }

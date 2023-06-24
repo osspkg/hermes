@@ -6,40 +6,47 @@
 package addons
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"plugin"
 	"sync"
 
-	"github.com/osspkg/go-algorithms/graph/kahn"
 	"github.com/osspkg/go-sdk/app"
-	"github.com/osspkg/go-sdk/errors"
 	"github.com/osspkg/go-sdk/iofile"
 	"github.com/osspkg/go-sdk/log"
 	hermesaddons "github.com/osspkg/hermes-addons"
-	"github.com/osspkg/hermes/app/pkg/util"
 	"github.com/osspkg/hermes/app/resolver"
 )
 
 const (
-	Symbol     = "HermesAPI"
-	FileNameSO = "addon.so"
+	Symbol   = "HermesAPI"
+	Manifest = "manifest.json"
 )
 
-type Addons struct {
-	addons       map[string]hermesaddons.Api
-	dependencies []string
+type (
+	Addons struct {
+		addons map[string]*Addon
+		status *Status
 
-	resolver *resolver.Resolver
-	conf     *Config
-	mux      sync.RWMutex
-}
+		resolver *resolver.Resolver
+		conf     *Config
+		mux      sync.RWMutex
+	}
+	Addon struct {
+		API      hermesaddons.Api
+		Manifest ManifestModel
+	}
+)
 
 func New(c *Config, r *resolver.Resolver) *Addons {
 	return &Addons{
-		addons:       make(map[string]hermesaddons.Api, 100),
-		dependencies: make([]string, 0, 100),
-		resolver:     r,
-		conf:         c,
+		addons:   make(map[string]*Addon, 100),
+		status:   NewStatus(),
+		resolver: r,
+		conf:     c,
 	}
 }
 
@@ -47,39 +54,71 @@ func (v *Addons) Down() error {
 	v.mux.Lock()
 	defer v.mux.Unlock()
 
-	var errs error
-	for _, dep := range v.dependencies {
-		api, ok := v.addons[dep]
-		if !ok {
-			continue
-		}
-		if err := api.Down(); err != nil {
-			errs = errors.Wrapf(errs, "addon stop `%s`: %w", dep, err)
-		}
-	}
-	return errs
-}
-
-func (v *Addons) Up(ctx app.Context) error {
-	files, err := iofile.Search(v.conf.Addons, FileNameSO)
-	if err != nil {
-		return fmt.Errorf("load addons from `%s`: %w", v.conf.Addons, err)
-	}
-	for _, filename := range files {
-		if err = v.load(filename); err != nil {
-			return err
+	for _, addon := range v.addons {
+		if err := addon.API.Down(); err != nil {
+			log.WithFields(log.Fields{
+				"pkg": addon.Manifest.PkgName,
+				"ver": addon.Manifest.Version,
+				"err": err.Error(),
+			}).Errorf("Unload addon")
 		}
 	}
-
-	if err = v.resolve(ctx); err != nil {
-		return err
-	}
-
 	return nil
 }
 
-func (v *Addons) load(filename string) error {
-	mod, err := plugin.Open(filename)
+func (v *Addons) Up(ctx app.Context) error {
+	return v.ReloadAll(ctx.Context())
+}
+
+func (v *Addons) Available() ([]ManifestModel, error) {
+	files, err := iofile.Search(v.conf.Addons, Manifest)
+	if err != nil {
+		return nil, fmt.Errorf("load addons from `%s`: %w", v.conf.Addons, err)
+	}
+	result := make([]ManifestModel, 0, len(files))
+	for _, filename := range files {
+		b, err := os.ReadFile(filename)
+		if err != nil {
+			log.WithFields(log.Fields{
+				"filename": filename,
+				"err":      err.Error(),
+			}).Errorf("Read " + Manifest)
+			continue
+		}
+		model := ManifestModel{}
+		if err = json.Unmarshal(b, &model); err != nil {
+			log.WithFields(log.Fields{
+				"filename": filename,
+				"err":      err.Error(),
+			}).Errorf("Unmarshal " + Manifest)
+			continue
+		}
+		model.Filename = filepath.Dir(filename) + "/" + model.Filename
+		result = append(result, model)
+	}
+	return result, nil
+}
+
+func (v *Addons) ReloadAll(ctx context.Context) error {
+	models, err := v.Available()
+	if err != nil {
+		return err
+	}
+	for _, model := range models {
+		if err = v.Load(ctx, model); err != nil {
+			log.WithFields(log.Fields{
+				"pkg":  model.PkgName,
+				"ver":  model.Version,
+				"file": model.Filename,
+				"err":  err.Error(),
+			}).Errorf("Load addon")
+		}
+	}
+	return nil
+}
+
+func (v *Addons) Load(ctx context.Context, model ManifestModel) error {
+	mod, err := plugin.Open(model.Filename)
 	if err != nil {
 		return err
 	}
@@ -91,62 +130,54 @@ func (v *Addons) load(filename string) error {
 
 	apiInit, ok := symApi.(func() hermesaddons.Api)
 	if !ok {
-		return fmt.Errorf("invalid api v1 for `%s`", filename)
+		return fmt.Errorf("invalid api v1")
 	}
 
-	api := apiInit()
+	addon := apiInit()
+
+	if err = addon.Inject(v.resolver); err != nil {
+		return fmt.Errorf("init addon: %w", err)
+	}
+
+	_ = v.Unload(model.PkgName)
 
 	v.mux.Lock()
 	defer v.mux.Unlock()
 
-	log.WithField(api.PkgName(), filename).Infof("Load addon")
+	v.addons[model.PkgName] = &Addon{
+		API:      addon,
+		Manifest: model,
+	}
 
-	v.addons[api.PkgName()] = api
+	log.WithFields(log.Fields{
+		"pkg":  model.PkgName,
+		"ver":  model.Version,
+		"file": model.Filename,
+	}).Infof("Load addon")
 
-	return nil
+	err = addon.Up(ctx)
+
+	v.status.Set(model, err)
+
+	return err
 }
 
-func (v *Addons) resolve(ctx app.Context) error {
-	graph := kahn.New()
-
+func (v *Addons) Unload(pkgName string) error {
 	v.mux.Lock()
 	defer v.mux.Unlock()
 
-	for cur, api := range v.addons {
-		for _, dep := range api.Dependency() {
-			if err := graph.Add(cur, dep); err != nil {
-				return fmt.Errorf("add addon dependency to graph `%s=>%s`: %w", cur, dep, err)
-			}
-		}
+	addon, ok := v.addons[pkgName]
+	if !ok {
+		return nil
 	}
-
-	if err := graph.Build(); err != nil {
-		return fmt.Errorf("build addon dependency graph: %w", err)
+	err := addon.API.Down()
+	if err != nil {
+		log.WithFields(log.Fields{
+			"pkg": addon.Manifest.PkgName,
+			"ver": addon.Manifest.Version,
+			"err": err.Error(),
+		}).Errorf("Unload addon")
+		return err
 	}
-
-	deps := graph.Result()
-
-	for _, dep := range deps {
-		if v.resolver.Has(dep) {
-			continue
-		}
-		if api, ok := v.addons[dep]; ok {
-			if err := api.Inject(v.resolver); err != nil {
-				return fmt.Errorf("addon init `%s`: %w", dep, err)
-			}
-			if err := v.resolver.Set(dep, api); err != nil {
-				return fmt.Errorf("addon save to resolver `%s`: %w", dep, err)
-			}
-			v.dependencies = append(v.dependencies, dep)
-			if err := api.Up(ctx.Context()); err != nil {
-				return fmt.Errorf("addon start `%s`: %w", dep, err)
-			}
-			continue
-		}
-		return fmt.Errorf("addon dependency not found: %s", dep)
-	}
-
-	util.FlipStringSlice(v.dependencies)
-
 	return nil
 }
