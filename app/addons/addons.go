@@ -14,10 +14,13 @@ import (
 	"plugin"
 	"sync"
 
+	"github.com/osspkg/hermes/app/acl"
+
 	"github.com/osspkg/go-sdk/app"
 	"github.com/osspkg/go-sdk/iofile"
 	"github.com/osspkg/go-sdk/log"
 	hermesaddons "github.com/osspkg/hermes-addons"
+	"github.com/osspkg/hermes/app/collections"
 	"github.com/osspkg/hermes/app/resolver"
 )
 
@@ -28,12 +31,13 @@ const (
 
 type (
 	Addons struct {
-		addons map[string]*Addon
-		status *Status
-
-		resolver *resolver.Resolver
-		conf     *Config
-		mux      sync.RWMutex
+		addons      map[string]*Addon
+		status      *Status
+		collections *collections.Collections
+		resolver    *resolver.Resolver
+		acl         *acl.ACL
+		conf        *Config
+		mux         sync.RWMutex
 	}
 	Addon struct {
 		API      hermesaddons.Api
@@ -41,12 +45,14 @@ type (
 	}
 )
 
-func New(c *Config, r *resolver.Resolver) *Addons {
+func New(c *Config, r *resolver.Resolver, cc *collections.Collections, a *acl.ACL) *Addons {
 	return &Addons{
-		addons:   make(map[string]*Addon, 100),
-		status:   NewStatus(),
-		resolver: r,
-		conf:     c,
+		addons:      make(map[string]*Addon, 100),
+		status:      NewStatus(),
+		resolver:    r,
+		collections: cc,
+		acl:         a,
+		conf:        c,
 	}
 }
 
@@ -135,6 +141,18 @@ func (v *Addons) Load(ctx context.Context, model ManifestModel) error {
 
 	addon := apiInit()
 
+	for _, migration := range addon.Database() {
+		if err = v.collections.ApplyMigrations(ctx, model.PkgName, migration.ID, migration.Data); err != nil {
+			return fmt.Errorf("apply migration [%s:%s]: %w", model.PkgName, migration.ID, err)
+		}
+		log.WithFields(log.Fields{
+			"pkg":       model.PkgName,
+			"ver":       model.Version,
+			"file":      model.Filename,
+			"migration": migration.ID,
+		}).Infof("Apply addon migration")
+	}
+
 	if err = addon.Inject(v.resolver); err != nil {
 		return fmt.Errorf("init addon: %w", err)
 	}
@@ -143,6 +161,10 @@ func (v *Addons) Load(ctx context.Context, model ManifestModel) error {
 
 	v.mux.Lock()
 	defer v.mux.Unlock()
+
+	for _, aclModel := range addon.ACL() {
+		v.acl.Setup(model.PkgName, aclModel.ID, aclModel.FormIDs)
+	}
 
 	v.addons[model.PkgName] = &Addon{
 		API:      addon,
@@ -180,4 +202,26 @@ func (v *Addons) Unload(pkgName string) error {
 		return err
 	}
 	return nil
+}
+
+func (v *Addons) ResolveApi(pkgName string) (hermesaddons.JsonRPCGetter, error) {
+	v.mux.RLock()
+	defer v.mux.RUnlock()
+
+	addon, ok := v.addons[pkgName]
+	if !ok {
+		return nil, fmt.Errorf("unknown addon")
+	}
+	return addon.API, nil
+}
+
+func (v *Addons) ResolveManifest(pkgName string) (*ManifestModel, error) {
+	v.mux.RLock()
+	defer v.mux.RUnlock()
+
+	addon, ok := v.addons[pkgName]
+	if !ok {
+		return nil, fmt.Errorf("unknown addon")
+	}
+	return &addon.Manifest, nil
 }

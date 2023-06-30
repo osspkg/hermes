@@ -3,9 +3,10 @@ module github.com/osspkg/hermes
 go 1.20
 
 require (
+	github.com/mailru/easyjson v0.7.7
 	github.com/osspkg/go-sdk v1.3.1
 	github.com/osspkg/goppy v0.12.8
-	github.com/osspkg/hermes-addons v0.0.0-20230624022935-9df2288bf9fb
+	github.com/osspkg/hermes-addons v0.0.0-20230630013704-3cd45cde91bf
 	github.com/stretchr/testify v1.8.4
 )
 
@@ -15,7 +16,6 @@ require (
 	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
-	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-sqlite3 v1.14.17 // indirect
 	github.com/osspkg/go-algorithms v1.2.4 // indirect
 	github.com/osspkg/go-static v1.3.2 // indirect

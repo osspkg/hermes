@@ -20,8 +20,8 @@ github.com/osspkg/go-static v1.3.2 h1:MST9eSG/gO6b1OjFlxoFfSLhdKRiaUA8lEUhh0KoUO
 github.com/osspkg/go-static v1.3.2/go.mod h1:PI0nuemvgmLuVgn3hIZMRFgQH6d1Iyn70Gs23Gl05qo=
 github.com/osspkg/goppy v0.12.8 h1:aqubWSvcHKvzzkETk8Lc0pIDzzzZTDxon09bQF9S9eY=
 github.com/osspkg/goppy v0.12.8/go.mod h1:CG/Imuw32hkcxTL3lwzPEZC2qICxSwRReLS5gOHQkM4=
-github.com/osspkg/hermes-addons v0.0.0-20230624022935-9df2288bf9fb h1:clqG6TDMHLD2UVFpiTrPlUIrRMOXFUwqiF77v2WFxsw=
-github.com/osspkg/hermes-addons v0.0.0-20230624022935-9df2288bf9fb/go.mod h1:wOrQSDXzNS2BTH0IgsMm/pDXfqRyq5y72n251VNrpIY=
+github.com/osspkg/hermes-addons v0.0.0-20230630013704-3cd45cde91bf h1:nd4OyZyqr5E4SX7Rcq/WX1wwswvn7KTHvixbzIX7keE=
+github.com/osspkg/hermes-addons v0.0.0-20230630013704-3cd45cde91bf/go.mod h1:wOrQSDXzNS2BTH0IgsMm/pDXfqRyq5y72n251VNrpIY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
 github.com/stretchr/testify v1.8.4 h1:CcVxjf3Q8PM0mHUKJCdn+eZZtm5yQwehR5yeSVQQcUk=
